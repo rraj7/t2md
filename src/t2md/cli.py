@@ -13,9 +13,11 @@ from rich.console import Console
 app = typer.Typer(no_args_is_help=True)
 console = Console()
 
+# Filename ordering helper: prefers patterns like 3.7.1, 3.7.2, etc.
 NUM = re.compile(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?")
 
 SUPPORTED_EXTS = {".txt", ".md", ".srt", ".vtt"}
+
 
 def sort_key(p: Path):
     """
@@ -28,22 +30,87 @@ def sort_key(p: Path):
         return (0, parts, p.name.lower())
     return (1, p.stat().st_mtime, p.name.lower())
 
+
 def list_transcripts(folder: Path) -> list[Path]:
     files = [p for p in folder.rglob("*") if p.is_file() and p.suffix.lower() in SUPPORTED_EXTS]
     files.sort(key=sort_key)
     return files
 
+
 def read_text(p: Path) -> str:
     return p.read_text(encoding="utf-8", errors="ignore").strip()
+
 
 def load_default_prompt() -> str:
     # Bundled file inside the installed package
     prompt_path = pkg_files("t2md").joinpath("default_prompt.md")
     return prompt_path.read_text(encoding="utf-8").strip()
 
+
 def derive_module_name(folder: Path) -> str:
-    # Use folder name by default (e.g., module_03 -> module_03)
     return folder.name
+
+
+def write_docx_from_markdown(md_text: str, docx_path: Path) -> None:
+    """
+    Simple Markdown -> DOCX:
+      - # / ## / ### / #### become Word headings
+      - "- " bullets -> List Bullet
+      - "1. " numbered -> List Number
+      - "> " blockquote -> Intense Quote
+      - everything else -> normal paragraph
+
+    Notes:
+      - This is intentionally minimal (no tables, code fencing, inline bold parsing).
+      - Produces a clean, readable DOCX that can be exported to PDF in Word/Google Docs.
+    """
+    from docx import Document  # type: ignore
+
+    doc = Document()
+
+    for raw_line in md_text.splitlines():
+        line = raw_line.rstrip()
+
+        # Preserve spacing
+        if not line.strip():
+            doc.add_paragraph("")
+            continue
+
+        # Headings
+        if line.startswith("# "):
+            doc.add_heading(line[2:].strip(), level=1)
+            continue
+        if line.startswith("## "):
+            doc.add_heading(line[3:].strip(), level=2)
+            continue
+        if line.startswith("### "):
+            doc.add_heading(line[4:].strip(), level=3)
+            continue
+        if line.startswith("#### "):
+            doc.add_heading(line[5:].strip(), level=4)
+            continue
+
+        # Bullets
+        if line.lstrip().startswith("- "):
+            doc.add_paragraph(line.lstrip()[2:].strip(), style="List Bullet")
+            continue
+
+        # Numbered lists
+        m = re.match(r"^\s*\d+\.\s+(.*)$", line)
+        if m:
+            doc.add_paragraph(m.group(1).strip(), style="List Number")
+            continue
+
+        # Blockquotes
+        if line.startswith("> "):
+            doc.add_paragraph(line[2:].strip(), style="Intense Quote")
+            continue
+
+        # Default paragraph
+        doc.add_paragraph(line)
+
+    doc.save(str(docx_path))
+
 
 @app.command("run")
 def run(
@@ -52,11 +119,14 @@ def run(
     out: Path = typer.Option(Path("./outputs"), "--out", help="Output directory"),
     prompt: Path | None = typer.Option(None, "--prompt", help="Optional prompt markdown file override"),
     model: str = typer.Option("gpt-4.1-mini", "--model", help="Model to use"),
+    format: str = typer.Option("md", "--format", help="Output format: md or docx"),
 ):
     """
-    Generate a combined Markdown file containing:
+    Generate a combined output containing:
       1) Executive Summary
       2) Textbook-style Reading
+
+    Output can be Markdown (.md) or Word (.docx).
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -73,7 +143,7 @@ def run(
 
     module_name = module or derive_module_name(folder)
 
-    prompt_rules = ""
+    # Prompt rules
     if prompt:
         prompt_path = prompt.expanduser().resolve()
         if not prompt_path.exists():
@@ -82,6 +152,7 @@ def run(
     else:
         prompt_rules = load_default_prompt()
 
+    # Gather transcripts
     files = list_transcripts(folder)
     if not files:
         raise typer.BadParameter("No transcript files found (.txt/.md/.srt/.vtt).")
@@ -121,17 +192,27 @@ TRANSCRIPTS:
 
     client = OpenAI(api_key=api_key)
 
-    with console.status("Generating markdown..."):
+    with console.status("Generating output..."):
         resp = client.responses.create(model=model, input=user_prompt)
         output = resp.output_text.strip()
 
-    out_file = out / f"{module_name}_All.md"
-    out_file.write_text(output, encoding="utf-8")
+    # Write output
+    fmt = format.lower().strip()
+    if fmt not in {"md", "docx"}:
+        raise typer.BadParameter("--format must be 'md' or 'docx'")
+
+    if fmt == "md":
+        out_file = out / f"{module_name}_All.md"
+        out_file.write_text(output, encoding="utf-8")
+    else:
+        out_file = out / f"{module_name}_All.docx"
+        write_docx_from_markdown(output, out_file)
 
     print("[cyan]Processed files (in order):[/cyan]")
     for f in files:
         print(f"  - {f.name}")
     print(f"\n[green]Wrote:[/green] {out_file}")
+
 
 @app.command("doctor")
 def doctor():
