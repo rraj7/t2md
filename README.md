@@ -242,21 +242,3 @@ If you're interested in developer tooling, AI-assisted learning, or content engi
 
 * * * * *
 
-License
--------
-
-MIT (planned --- open to discussion)
-
-* * * * *
-
-If you want, I can:
-
--   tighten this further for GitHub readability
-
--   add diagrams or architecture notes
-
--   split "Roadmap" into issues
-
--   write a CONTRIBUTING.md
-
-Just tell me the next step.
