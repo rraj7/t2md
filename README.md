@@ -55,6 +55,7 @@ Current Features
 
     -   Word documents (`.docx`) with proper headings and lists\
         (DOCX can be exported to PDF using Word or Google Docs)
+    -   LaTeX (`.tex`) documents for PDF-ready workflows
 
 -   🧱 **Installable CLI**
 
@@ -111,6 +112,10 @@ Basic usage:
 Specify output format:
 
 `t2md run /path/to/transcripts/module_03 --format docx`
+
+Generate LaTeX:
+
+`t2md run /path/to/transcripts/module_03 --format tex`
 
 Use a custom prompt file:
 
@@ -241,4 +246,3 @@ This project is early enough that:
 If you're interested in developer tooling, AI-assisted learning, or content engineering, contributions and ideas are very welcome.
 
 * * * * *
-
