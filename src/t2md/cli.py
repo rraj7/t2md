@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from pathlib import Path
@@ -17,6 +18,7 @@ console = Console()
 NUM = re.compile(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?")
 
 SUPPORTED_EXTS = {".txt", ".md", ".srt", ".vtt"}
+DEFAULT_CHUNK_CHARS = 120_000
 
 
 def sort_key(p: Path):
@@ -49,6 +51,205 @@ def load_default_prompt() -> str:
 
 def derive_module_name(folder: Path) -> str:
     return folder.name
+
+
+def sanitize_name(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._-")
+    return cleaned or "module"
+
+
+def split_large_text(text: str, max_chars: int) -> list[str]:
+    """
+    Split oversized text by paragraph boundaries where possible, and hard-split as fallback.
+    """
+    if len(text) <= max_chars:
+        return [text]
+
+    pieces: list[str] = []
+    current: list[str] = []
+    current_len = 0
+
+    for para in text.split("\n\n"):
+        if not para:
+            continue
+        addition = para if not current else f"\n\n{para}"
+        if current_len + len(addition) <= max_chars:
+            current.append(addition)
+            current_len += len(addition)
+            continue
+
+        if current:
+            pieces.append("".join(current))
+            current = []
+            current_len = 0
+
+        if len(para) <= max_chars:
+            current = [para]
+            current_len = len(para)
+            continue
+
+        for i in range(0, len(para), max_chars):
+            chunk = para[i : i + max_chars]
+            if chunk:
+                pieces.append(chunk)
+
+    if current:
+        pieces.append("".join(current))
+
+    return pieces if pieces else [text]
+
+
+def build_transcript_chunks(files: list[Path], chunk_chars: int) -> list[str]:
+    units: list[str] = []
+    file_piece_limit = max(10_000, chunk_chars - 4_000)
+
+    for file_path in files:
+        raw = read_text(file_path)
+        if not raw:
+            continue
+        segments = split_large_text(raw, file_piece_limit)
+        total = len(segments)
+        for i, segment in enumerate(segments, start=1):
+            suffix = "" if total == 1 else f" (part {i}/{total})"
+            units.append(f"\n\n---\n\n## SOURCE FILE: {file_path.name}{suffix}\n\n{segment}\n")
+
+    if not units:
+        return []
+
+    chunks: list[str] = []
+    current = ""
+    for unit in units:
+        candidate = unit if not current else current + unit
+        if current and len(candidate) > chunk_chars:
+            chunks.append(current.strip())
+            current = unit
+        else:
+            current = candidate
+
+    if current:
+        chunks.append(current.strip())
+    return chunks
+
+
+def build_single_prompt(module_name: str, prompt_rules: str, transcripts: str) -> str:
+    return f"""
+You will be given:
+1) PROMPT_RULES (how to transform)
+2) TRANSCRIPTS (raw content)
+
+Return EXACTLY two top-level Markdown sections:
+
+# {module_name} — Executive Summary
+- thesis (2–4 sentences)
+- 5–10 key concepts
+- 2–5 examples/case studies
+- what to remember (3–7 bullets)
+
+# {module_name} — Reading
+Follow PROMPT_RULES to create a readable textbook-style markdown:
+- include a TOC
+- clean headings
+- preserve important examples
+- remove transcript artifacts
+- end with a synthesis summary
+
+PROMPT_RULES:
+{prompt_rules}
+
+TRANSCRIPTS:
+{transcripts}
+""".strip()
+
+
+def build_chunk_prompt(module_name: str, prompt_rules: str, chunk_text: str, chunk_idx: int, chunk_total: int) -> str:
+    return f"""
+You are processing chunk {chunk_idx} of {chunk_total} for module "{module_name}".
+Extract high-fidelity notes from this chunk only. Keep details that must survive into the final textbook output.
+
+Return Markdown using this structure exactly:
+
+# Chunk {chunk_idx} Notes
+## Core Concepts
+- 5-12 bullets with concise detail
+## Important Examples
+- examples/case studies from this chunk
+## Definitions and Terms
+- terms with brief definitions
+## Keep-for-Final
+- facts/insights that should appear in the final executive summary or reading
+
+Rules:
+- Do not invent details.
+- Preserve chronology and source-specific context when relevant.
+- Keep output concise but information-dense.
+
+PROMPT_RULES:
+{prompt_rules}
+
+TRANSCRIPT_CHUNK:
+{chunk_text}
+""".strip()
+
+
+def build_reduce_prompt(module_name: str, prompt_rules: str, chunk_notes: str) -> str:
+    return f"""
+You will be given:
+1) PROMPT_RULES
+2) CHUNK_NOTES produced from sequential transcript chunks
+
+Synthesize them into a single coherent result.
+Return EXACTLY two top-level Markdown sections:
+
+# {module_name} — Executive Summary
+- thesis (2–4 sentences)
+- 5–10 key concepts
+- 2–5 examples/case studies
+- what to remember (3–7 bullets)
+
+# {module_name} — Reading
+Follow PROMPT_RULES to create a readable textbook-style markdown:
+- include a TOC
+- clean headings
+- preserve important examples
+- remove transcript artifacts
+- end with a synthesis summary
+
+Rules:
+- Merge overlapping ideas and remove duplication.
+- Preserve chronology where it improves understanding.
+- Keep final structure clean and publication-ready.
+
+PROMPT_RULES:
+{prompt_rules}
+
+CHUNK_NOTES:
+{chunk_notes}
+""".strip()
+
+
+def compute_run_hash(
+    files: list[Path], module_name: str, model: str, chunk_chars: int, prompt_rules: str, format_name: str
+) -> str:
+    hasher = hashlib.sha256()
+    hasher.update(module_name.encode("utf-8"))
+    hasher.update(model.encode("utf-8"))
+    hasher.update(str(chunk_chars).encode("utf-8"))
+    hasher.update(format_name.encode("utf-8"))
+    hasher.update(prompt_rules.encode("utf-8"))
+    for p in files:
+        stat = p.stat()
+        hasher.update(str(p.resolve()).encode("utf-8"))
+        hasher.update(str(stat.st_size).encode("utf-8"))
+        hasher.update(str(stat.st_mtime_ns).encode("utf-8"))
+    return hasher.hexdigest()[:12]
+
+
+def generate_with_model(client: OpenAI, model: str, prompt: str) -> str:
+    resp = client.responses.create(model=model, input=prompt)
+    output = (resp.output_text or "").strip()
+    if not output:
+        raise typer.BadParameter("Model returned an empty response. Try rerunning with a different model.")
+    return output
 
 
 def write_docx_from_markdown(md_text: str, docx_path: Path) -> None:
@@ -320,12 +521,24 @@ def run(
     prompt: Path | None = typer.Option(None, "--prompt", help="Optional prompt markdown file override"),
     model: str = typer.Option("gpt-4.1-mini", "--model", help="Model to use"),
     format: str = typer.Option("md", "--format", help="Output format: md, docx, or tex"),
+    chunk_chars: int = typer.Option(
+        DEFAULT_CHUNK_CHARS,
+        "--chunk-chars",
+        help="Approx character budget per chunk before auto map/reduce is used.",
+    ),
+    resume: bool = typer.Option(
+        True,
+        "--resume/--no-resume",
+        help="Reuse cached chunk notes from prior runs with unchanged inputs.",
+    ),
 ):
     """
     Generate a combined output containing:
       1) Executive Summary
       2) Textbook-style Reading
 
+    For large inputs, transcript content is auto-chunked and processed via
+    map/reduce before producing one final output.
     Output can be Markdown (.md), Word (.docx), or LaTeX (.tex).
     """
     api_key = os.getenv("OPENAI_API_KEY")
@@ -352,54 +565,59 @@ def run(
     else:
         prompt_rules = load_default_prompt()
 
+    if chunk_chars < 20_000:
+        raise typer.BadParameter("--chunk-chars must be >= 20000.")
+
     # Gather transcripts
     files = list_transcripts(folder)
     if not files:
         raise typer.BadParameter("No transcript files found (.txt/.md/.srt/.vtt).")
 
-    combined = []
-    for f in files:
-        combined.append(f"\n\n---\n\n## SOURCE FILE: {f.name}\n\n{read_text(f)}\n")
-    transcripts = "".join(combined).strip()
-
-    user_prompt = f"""
-You will be given:
-1) PROMPT_RULES (how to transform)
-2) TRANSCRIPTS (raw content)
-
-Return EXACTLY two top-level Markdown sections:
-
-# {module_name} — Executive Summary
-- thesis (2–4 sentences)
-- 5–10 key concepts
-- 2–5 examples/case studies
-- what to remember (3–7 bullets)
-
-# {module_name} — Reading
-Follow PROMPT_RULES to create a readable textbook-style markdown:
-- include a TOC
-- clean headings
-- preserve important examples
-- remove transcript artifacts
-- end with a synthesis summary
-
-PROMPT_RULES:
-{prompt_rules}
-
-TRANSCRIPTS:
-{transcripts}
-""".strip()
+    chunks = build_transcript_chunks(files, chunk_chars)
+    if not chunks:
+        raise typer.BadParameter("All transcript files were empty after reading.")
 
     client = OpenAI(api_key=api_key)
-
-    with console.status("Generating output..."):
-        resp = client.responses.create(model=model, input=user_prompt)
-        output = resp.output_text.strip()
 
     # Write output
     fmt = format.lower().strip()
     if fmt not in {"md", "docx", "tex"}:
         raise typer.BadParameter("--format must be 'md', 'docx', or 'tex'")
+
+    if len(chunks) == 1:
+        user_prompt = build_single_prompt(module_name, prompt_rules, chunks[0])
+        with console.status("Generating output..."):
+            output = generate_with_model(client, model, user_prompt)
+    else:
+        run_hash = compute_run_hash(files, module_name, model, chunk_chars, prompt_rules, fmt)
+        cache_dir = out / ".t2md_runs" / f"{sanitize_name(module_name)}_{run_hash}"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        print(
+            f"[cyan]Auto-chunking enabled:[/cyan] {len(chunks)} chunks "
+            f"(~{chunk_chars} chars/chunk)."
+        )
+        print(f"[cyan]Chunk cache:[/cyan] {cache_dir}")
+
+        chunk_notes: list[str] = []
+        for idx, chunk_text in enumerate(chunks, start=1):
+            checkpoint_file = cache_dir / f"chunk_{idx:03d}.md"
+            if resume and checkpoint_file.exists():
+                note = read_text(checkpoint_file)
+                if note:
+                    print(f"[yellow]Reused checkpoint[/yellow] chunk {idx}/{len(chunks)}")
+                    chunk_notes.append(f"\n\n---\n\n# CHUNK {idx} NOTES\n\n{note}\n")
+                    continue
+
+            chunk_prompt = build_chunk_prompt(module_name, prompt_rules, chunk_text, idx, len(chunks))
+            with console.status(f"Generating chunk notes {idx}/{len(chunks)}..."):
+                note = generate_with_model(client, model, chunk_prompt)
+            checkpoint_file.write_text(note, encoding="utf-8")
+            chunk_notes.append(f"\n\n---\n\n# CHUNK {idx} NOTES\n\n{note}\n")
+
+        reduce_prompt = build_reduce_prompt(module_name, prompt_rules, "".join(chunk_notes).strip())
+        with console.status("Merging chunk notes into final output..."):
+            output = generate_with_model(client, model, reduce_prompt)
 
     if fmt == "md":
         out_file = out / f"{module_name}_All.md"

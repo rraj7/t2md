@@ -57,6 +57,14 @@ Current Features
         (DOCX can be exported to PDF using Word or Google Docs)
     -   LaTeX (`.tex`) documents for PDF-ready workflows
 
+-   🧩 **Auto-chunking for large transcript sets**
+
+    -   Automatically splits oversized inputs into sequential chunks
+
+    -   Uses a map/reduce generation flow and merges into one final output
+
+    -   Caches chunk notes to resume safely on retries
+
 -   🧱 **Installable CLI**
 
     -   Install once
@@ -126,6 +134,15 @@ Specify output directory:
 
 `t2md run /path/to/transcripts/module_03\
   --out ~/Documents/t2md_outputs`
+
+Tune auto-chunking size:
+
+`t2md run /path/to/transcripts/module_03\
+  --chunk-chars 150000`
+
+Force fresh chunk generation (ignore cached chunk notes):
+
+`t2md run /path/to/transcripts/module_03 --no-resume`
 
 * * * * *
 
