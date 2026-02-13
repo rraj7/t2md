@@ -112,6 +112,206 @@ def write_docx_from_markdown(md_text: str, docx_path: Path) -> None:
     doc.save(str(docx_path))
 
 
+def escape_latex(text: str) -> str:
+    replacements = {
+        "\\": r"\textbackslash{}",
+        "&": r"\&",
+        "%": r"\%",
+        "$": r"\$",
+        "#": r"\#",
+        "_": r"\_",
+        "{": r"\{",
+        "}": r"\}",
+        "~": r"\textasciitilde{}",
+        "^": r"\textasciicircum{}",
+    }
+    out = text
+    for k, v in replacements.items():
+        out = out.replace(k, v)
+    return out
+
+
+def apply_emphasis(text: str) -> str:
+    """
+    Convert inline **bold** and *italic* while escaping other text.
+    This is intentionally minimal and non-nesting.
+    """
+    pattern = re.compile(r"\*\*(.+?)\*\*|\*(.+?)\*")
+    out: list[str] = []
+    last = 0
+    for m in pattern.finditer(text):
+        out.append(escape_latex(text[last : m.start()]))
+        if m.group(1) is not None:
+            out.append(r"\textbf{" + escape_latex(m.group(1)) + r"}")
+        else:
+            out.append(r"\textit{" + escape_latex(m.group(2)) + r"}")
+        last = m.end()
+    out.append(escape_latex(text[last:]))
+    return "".join(out)
+
+
+def convert_inline_md(text: str) -> str:
+    """
+    Convert minimal inline Markdown:
+      - `code` -> \\texttt{...}
+      - **bold** -> \\textbf{...}
+      - *italic* -> \\textit{...}
+
+    Unmatched backticks are treated as literal text.
+    """
+    parts = text.split("`")
+    if len(parts) == 1:
+        return apply_emphasis(text)
+
+    if len(parts) % 2 == 0:
+        parts[-2] = parts[-2] + "`" + parts[-1]
+        parts = parts[:-1]
+
+    out: list[str] = []
+    for i, part in enumerate(parts):
+        if i % 2 == 1:
+            out.append(r"\texttt{" + escape_latex(part) + r"}")
+        else:
+            out.append(apply_emphasis(part))
+    return "".join(out)
+
+
+def write_latex_from_markdown(md_text: str, tex_path: Path, title: str) -> None:
+    """
+    Minimal Markdown -> LaTeX:
+      - # / ## / ### / #### become sectioning commands
+      - "- " bullets -> itemize
+      - "1. " numbered -> enumerate
+      - "> " blockquote -> quote
+      - fenced code blocks -> verbatim
+      - everything else -> paragraph text
+
+    Notes:
+      - Intentionally minimal; focuses on compile-ready LaTeX.
+      - Inline Markdown formatting is not transformed.
+    """
+    lines = md_text.splitlines()
+    out: list[str] = []
+
+    out.append(r"\documentclass[11pt]{article}")
+    out.append(r"\usepackage[utf8]{inputenc}")
+    out.append(r"\usepackage[T1]{fontenc}")
+    out.append(r"\usepackage{lmodern}")
+    out.append(r"\usepackage{geometry}")
+    out.append(r"\usepackage{hyperref}")
+    out.append(r"\usepackage{enumitem}")
+    out.append(r"\usepackage{parskip}")
+    out.append(r"\geometry{margin=1in}")
+    out.append(r"\setlist{noitemsep}")
+    out.append(r"\title{" + escape_latex(title) + r"}")
+    out.append(r"\date{}")
+    out.append(r"\begin{document}")
+    out.append(r"\maketitle")
+    out.append(r"\tableofcontents")
+    out.append("")
+
+    in_code = False
+    in_quote = False
+    list_mode: str | None = None  # "itemize" or "enumerate"
+
+    def close_list() -> None:
+        nonlocal list_mode
+        if list_mode:
+            out.append(r"\end{" + list_mode + r"}")
+            list_mode = None
+
+    def close_quote() -> None:
+        nonlocal in_quote
+        if in_quote:
+            out.append(r"\end{quote}")
+            in_quote = False
+
+    for raw_line in lines:
+        line = raw_line.rstrip("\n")
+
+        if line.strip().startswith("```"):
+            close_list()
+            close_quote()
+            if not in_code:
+                out.append(r"\begin{verbatim}")
+                in_code = True
+            else:
+                out.append(r"\end{verbatim}")
+                in_code = False
+            continue
+
+        if in_code:
+            out.append(line)
+            continue
+
+        if not line.strip():
+            close_list()
+            close_quote()
+            out.append("")
+            continue
+
+        if line.startswith("# "):
+            close_list()
+            close_quote()
+            out.append(r"\section{" + convert_inline_md(line[2:].strip()) + r"}")
+            continue
+        if line.startswith("## "):
+            close_list()
+            close_quote()
+            out.append(r"\subsection{" + convert_inline_md(line[3:].strip()) + r"}")
+            continue
+        if line.startswith("### "):
+            close_list()
+            close_quote()
+            out.append(r"\subsubsection{" + convert_inline_md(line[4:].strip()) + r"}")
+            continue
+        if line.startswith("#### "):
+            close_list()
+            close_quote()
+            out.append(r"\paragraph{" + convert_inline_md(line[5:].strip()) + r"}")
+            continue
+
+        if line.startswith("> "):
+            close_list()
+            if not in_quote:
+                out.append(r"\begin{quote}")
+                in_quote = True
+            out.append(convert_inline_md(line[2:].strip()))
+            continue
+        if in_quote:
+            close_quote()
+
+        if line.lstrip().startswith("- "):
+            item = line.lstrip()[2:].strip()
+            if list_mode != "itemize":
+                close_list()
+                out.append(r"\begin{itemize}")
+                list_mode = "itemize"
+            out.append(r"\item " + convert_inline_md(item))
+            continue
+
+        m = re.match(r"^\s*\d+\.\s+(.*)$", line)
+        if m:
+            item = m.group(1).strip()
+            if list_mode != "enumerate":
+                close_list()
+                out.append(r"\begin{enumerate}")
+                list_mode = "enumerate"
+            out.append(r"\item " + convert_inline_md(item))
+            continue
+
+        close_list()
+        out.append(convert_inline_md(line))
+
+    close_list()
+    close_quote()
+    if in_code:
+        out.append(r"\end{verbatim}")
+
+    out.append(r"\end{document}")
+    tex_path.write_text("\n".join(out), encoding="utf-8")
+
+
 @app.command("run")
 def run(
     folder: Path = typer.Argument(..., help="Folder containing transcript files"),
@@ -119,14 +319,14 @@ def run(
     out: Path = typer.Option(Path("./outputs"), "--out", help="Output directory"),
     prompt: Path | None = typer.Option(None, "--prompt", help="Optional prompt markdown file override"),
     model: str = typer.Option("gpt-4.1-mini", "--model", help="Model to use"),
-    format: str = typer.Option("md", "--format", help="Output format: md or docx"),
+    format: str = typer.Option("md", "--format", help="Output format: md, docx, or tex"),
 ):
     """
     Generate a combined output containing:
       1) Executive Summary
       2) Textbook-style Reading
 
-    Output can be Markdown (.md) or Word (.docx).
+    Output can be Markdown (.md), Word (.docx), or LaTeX (.tex).
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -198,15 +398,18 @@ TRANSCRIPTS:
 
     # Write output
     fmt = format.lower().strip()
-    if fmt not in {"md", "docx"}:
-        raise typer.BadParameter("--format must be 'md' or 'docx'")
+    if fmt not in {"md", "docx", "tex"}:
+        raise typer.BadParameter("--format must be 'md', 'docx', or 'tex'")
 
     if fmt == "md":
         out_file = out / f"{module_name}_All.md"
         out_file.write_text(output, encoding="utf-8")
-    else:
+    elif fmt == "docx":
         out_file = out / f"{module_name}_All.docx"
         write_docx_from_markdown(output, out_file)
+    else:
+        out_file = out / f"{module_name}_All.tex"
+        write_latex_from_markdown(output, out_file, module_name)
 
     print("[cyan]Processed files (in order):[/cyan]")
     for f in files:
