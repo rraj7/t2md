@@ -8,10 +8,21 @@ import tiktoken
 
 
 def count_tokens(prompt: str) -> int:
-    """Rough token count. Uses OpenAI's tokenizer for all providers — accurate
-    for GPT models and close enough for routing decisions on other providers."""
-    enc = tiktoken.encoding_for_model("gpt-4o")
-    return len(enc.encode(prompt))
+    """Best-effort token count for routing. Never raises.
+
+    Tries the gpt-4o encoding, then tiktoken's built-in cl100k_base, then
+    falls back to a rough char/4 heuristic if tiktoken is unavailable or
+    the encoding can't be loaded (e.g., offline first-run)."""
+    try:
+        enc = tiktoken.encoding_for_model("gpt-4o")
+        return len(enc.encode(prompt))
+    except Exception:
+        pass
+    try:
+        enc = tiktoken.get_encoding("cl100k_base")
+        return len(enc.encode(prompt))
+    except Exception:
+        return len(prompt) // 4
 
 
 class Provider(ABC):
@@ -27,7 +38,9 @@ class Provider(ABC):
         return self.large_model
 
     @abstractmethod
-    def complete(self, prompt: str, model: str) -> str: ...
+    def complete(self, prompt: str, model: str, max_output_tokens: int) -> tuple[str, bool]:
+        """Return (text, truncated). `truncated` is True if the model hit the output cap."""
+        ...
 
     def require_key(self) -> str:
         if self.env_key is None:
@@ -46,15 +59,18 @@ class OpenAIProvider(Provider):
     tiers = [(4_000, "gpt-4o-mini"), (32_000, "gpt-4o")]
     large_model = "gpt-4o"
 
-    def complete(self, prompt: str, model: str) -> str:
+    def complete(self, prompt: str, model: str, max_output_tokens: int) -> tuple[str, bool]:
         from openai import OpenAI
 
         client = OpenAI(api_key=self.require_key())
         resp = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_output_tokens,
         )
-        return resp.choices[0].message.content.strip()
+        choice = resp.choices[0]
+        truncated = getattr(choice, "finish_reason", None) == "length"
+        return choice.message.content.strip(), truncated
 
 
 class AnthropicProvider(Provider):
@@ -63,16 +79,17 @@ class AnthropicProvider(Provider):
     tiers = [(4_000, "claude-haiku-4-5"), (32_000, "claude-sonnet-4-6")]
     large_model = "claude-sonnet-4-6"
 
-    def complete(self, prompt: str, model: str) -> str:
+    def complete(self, prompt: str, model: str, max_output_tokens: int) -> tuple[str, bool]:
         import anthropic
 
         client = anthropic.Anthropic(api_key=self.require_key())
         resp = client.messages.create(
             model=model,
-            max_tokens=8096,
+            max_tokens=max_output_tokens,
             messages=[{"role": "user", "content": prompt}],
         )
-        return resp.content[0].text.strip()
+        truncated = getattr(resp, "stop_reason", None) == "max_tokens"
+        return resp.content[0].text.strip(), truncated
 
 
 class OllamaProvider(Provider):
@@ -83,7 +100,7 @@ class OllamaProvider(Provider):
     tiers = [(4_000, "llama3.2:3b"), (32_000, "llama3.1:8b")]
     large_model = "llama3.1:70b"
 
-    def complete(self, prompt: str, model: str) -> str:
+    def complete(self, prompt: str, model: str, max_output_tokens: int) -> tuple[str, bool]:
         raise NotImplementedError("Ollama support is planned for v0.3")
 
 

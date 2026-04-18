@@ -40,17 +40,17 @@ def test_providers_registry_contains_both():
 def test_complete_raises_without_api_key(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
-        OpenAIProvider().complete("test", "gpt-4o-mini")
+        OpenAIProvider().complete("test", "gpt-4o-mini", 1000)
 
 
-def test_complete_calls_openai_sdk(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-
+def _make_openai_fake(finish_reason="stop"):
     class FakeMsg:
         content = "  mocked response  "
 
     class FakeChoice:
         message = FakeMsg()
+
+    FakeChoice.finish_reason = finish_reason
 
     class FakeResp:
         choices = [FakeChoice()]
@@ -61,13 +61,29 @@ def test_complete_calls_openai_sdk(monkeypatch):
             self.chat = self
             self.completions = self
 
-        def create(self, model, messages):
+        def create(self, model, messages, max_tokens):
             assert model == "gpt-4o-mini"
             assert messages[0]["content"] == "hi"
+            assert max_tokens == 1234
             return FakeResp()
 
-    import openai
-    monkeypatch.setattr(openai, "OpenAI", FakeClient)
+    return FakeClient
 
-    result = OpenAIProvider().complete("hi", "gpt-4o-mini")
-    assert result == "mocked response"
+
+def test_complete_calls_openai_sdk(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    import openai
+    monkeypatch.setattr(openai, "OpenAI", _make_openai_fake(finish_reason="stop"))
+
+    text, truncated = OpenAIProvider().complete("hi", "gpt-4o-mini", 1234)
+    assert text == "mocked response"
+    assert truncated is False
+
+
+def test_complete_flags_truncation_when_length_finish(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    import openai
+    monkeypatch.setattr(openai, "OpenAI", _make_openai_fake(finish_reason="length"))
+
+    _, truncated = OpenAIProvider().complete("hi", "gpt-4o-mini", 1234)
+    assert truncated is True

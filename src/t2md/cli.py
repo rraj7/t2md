@@ -324,6 +324,11 @@ def run(
     model: str | None = typer.Option(None, "--model", help="Model override (default: auto-selected by input size)"),
     provider: str = typer.Option("openai", "--provider", help="LLM provider: openai or anthropic"),
     format: str = typer.Option("md", "--format", help="Output format: md, docx, or tex"),
+    max_output_tokens: int = typer.Option(
+        16_000,
+        "--max-output-tokens",
+        help="Maximum tokens to generate. Raise if output looks cut off.",
+    ),
 ):
     """
     Generate a combined output containing:
@@ -414,7 +419,7 @@ TRANSCRIPTS:
 
     with console.status("Generating output..."):
         try:
-            output = llm.complete(user_prompt, chosen_model)
+            output, truncated = llm.complete(user_prompt, chosen_model, max_output_tokens)
         except RuntimeError as e:
             print(f"[red]Error:[/red] {e}")
             raise typer.Exit(code=1)
@@ -424,6 +429,12 @@ TRANSCRIPTS:
                 f"Check your {llm.env_key} and network connection, then try again."
             )
             raise typer.Exit(code=1)
+
+    if truncated:
+        print(
+            f"[yellow]Warning:[/yellow] output hit the {max_output_tokens:,}-token cap and was truncated. "
+            "Rerun with a higher --max-output-tokens (e.g. 32000) to get the full response."
+        )
 
     # Write output
     fmt = format.lower().strip()
