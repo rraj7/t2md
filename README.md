@@ -37,11 +37,14 @@ Current Features
     Process an entire directory of transcripts or text files in one command.
 
 -   🧠 **LLM-driven transformation**\
-    Uses OpenAI models to convert raw transcripts into:
+    Works with OpenAI (GPT-4o family) or Anthropic (Claude family). Converts raw transcripts into:
 
     -   Executive summaries
 
     -   Textbook-style prose with clear structure
+
+-   💸 **Auto model selection**\
+    Picks the cheapest model that can handle your input size. Short lectures → `gpt-4o-mini` or `claude-haiku-4-5`. Longer content → `gpt-4o` or `claude-sonnet-4-6`. Override with `--model` any time.
 
 -   🧩 **Configurable prompt ingestion**
 
@@ -78,54 +81,94 @@ Installation
 
 Recommended: `pipx` (isolated, clean installs)
 
-`brew install pipx
+```bash
+brew install pipx
 pipx ensurepath
-pipx install git+https://github.com/rraj7/t2md.git`
+pipx install git+https://github.com/rraj7/t2md.git
+```
 
 Verify installation:
 
-`t2md --help
-t2md doctor`
+```bash
+t2md --help
+t2md doctor
+```
 
 * * * * *
 
 Setup (One-time)
 ----------------
 
-Add your OpenAI API key to your shell config:
+`t2md` supports two LLM providers. Set at least one API key in your shell config:
 
-`export OPENAI_API_KEY="sk-..."`
+```bash
+# For OpenAI (default)
+export OPENAI_API_KEY="sk-..."
+
+# For Anthropic / Claude
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
 
 Reload your shell:
 
-`source ~/.zshrc`
+```bash
+source ~/.zshrc
+```
+
+Run `t2md doctor` to confirm which providers are configured.
 
 * * * * *
 
 Usage
 -----
 
-Basic usage:
+### Try it with bundled examples
 
-`t2md run /path/to/transcripts/module_03`
+Two real MIT OpenCourseWare lecture transcripts ship in the repo, so you can try `t2md` without supplying your own data:
 
-Specify output format:
+```bash
+t2md run examples/mit6_7960_lec01_intro_deep_learning
+t2md run examples/mit6_7960_lec02_training_neural_networks --format docx
+```
 
-`t2md run /path/to/transcripts/module_03 --format docx`
+See [`examples/README.md`](examples/README.md) for attribution.
 
-Generate LaTeX:
+### Common commands
 
-`t2md run /path/to/transcripts/module_03 --format tex`
+```bash
+# Basic run (auto-selects the cheapest model that can handle the input)
+t2md run /path/to/transcripts/module_03
 
-Use a custom prompt file:
+# Word document output
+t2md run /path/to/transcripts/module_03 --format docx
 
-`t2md run /path/to/transcripts/module_03\
-  --prompt /path/to/prompt_rules.md`
+# LaTeX output
+t2md run /path/to/transcripts/module_03 --format tex
 
-Specify output directory:
+# Use Claude instead of OpenAI
+t2md run /path/to/transcripts/module_03 --provider anthropic
 
-`t2md run /path/to/transcripts/module_03\
-  --out ~/Documents/t2md_outputs`
+# Override the auto-selected model
+t2md run /path/to/transcripts/module_03 --model gpt-4o
+
+# Custom prompt file
+t2md run /path/to/transcripts/module_03 --prompt /path/to/prompt_rules.md
+
+# Custom output directory
+t2md run /path/to/transcripts/module_03 --out ~/Documents/t2md_outputs
+```
+
+### Automatic model selection
+
+When you don't pass `--model`, `t2md` picks one based on the token count of your input:
+
+| Tokens | OpenAI | Anthropic |
+|---|---|---|
+| < 4,000 | `gpt-4o-mini` | `claude-haiku-4-5` |
+| 4,000 – 32,000 | `gpt-4o` | `claude-sonnet-4-6` |
+| > 32,000 | `gpt-4o` + warning | `claude-sonnet-4-6` + warning |
+
+Short lectures cost fractions of a cent; longer dense content gets the stronger model automatically.
 
 * * * * *
 

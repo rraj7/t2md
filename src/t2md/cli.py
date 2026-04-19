@@ -6,9 +6,10 @@ from pathlib import Path
 from importlib.resources import files as pkg_files
 
 import typer
-from openai import OpenAI
 from rich import print
 from rich.console import Console
+
+from .providers import PROVIDERS, count_tokens, get_provider
 
 app = typer.Typer(no_args_is_help=True)
 console = Console()
@@ -17,6 +18,8 @@ console = Console()
 NUM = re.compile(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?")
 
 SUPPORTED_EXTS = {".txt", ".md", ".srt", ".vtt"}
+
+_LARGE_WARNING = 32_000
 
 
 def sort_key(p: Path):
@@ -318,8 +321,14 @@ def run(
     module: str | None = typer.Option(None, "--module", help="Module name (default: folder name)"),
     out: Path = typer.Option(Path("./outputs"), "--out", help="Output directory"),
     prompt: Path | None = typer.Option(None, "--prompt", help="Optional prompt markdown file override"),
-    model: str = typer.Option("gpt-4.1-mini", "--model", help="Model to use"),
+    model: str | None = typer.Option(None, "--model", help="Model override (default: auto-selected by input size)"),
+    provider: str = typer.Option("openai", "--provider", help="LLM provider: openai or anthropic"),
     format: str = typer.Option("md", "--format", help="Output format: md, docx, or tex"),
+    max_output_tokens: int = typer.Option(
+        16_000,
+        "--max-output-tokens",
+        help="Maximum tokens to generate. Raise if output looks cut off.",
+    ),
 ):
     """
     Generate a combined output containing:
@@ -328,11 +337,10 @@ def run(
 
     Output can be Markdown (.md), Word (.docx), or LaTeX (.tex).
     """
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise typer.BadParameter(
-            "OPENAI_API_KEY is not set. Add it to ~/.zshrc (recommended) or export it in your shell."
-        )
+    try:
+        llm = get_provider(provider)
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from e
 
     folder = folder.expanduser().resolve()
     out = out.expanduser().resolve()
@@ -390,11 +398,45 @@ TRANSCRIPTS:
 {transcripts}
 """.strip()
 
-    client = OpenAI(api_key=api_key)
+    token_count = count_tokens(user_prompt)
+    if model:
+        chosen_model = model
+        origin = "manual override"
+    else:
+        chosen_model = llm.select_model(token_count)
+        origin = "auto-selected"
+
+    print(
+        f"[dim]Provider:[/dim] {llm.name}  "
+        f"[dim]Model:[/dim] {chosen_model} "
+        f"[dim]({origin}, {token_count:,} tokens)[/dim]"
+    )
+    if token_count >= _LARGE_WARNING:
+        print(
+            f"[yellow]Warning:[/yellow] {token_count:,} tokens is large — "
+            "consider splitting your transcripts into smaller folders if output looks truncated."
+        )
 
     with console.status("Generating output..."):
-        resp = client.responses.create(model=model, input=user_prompt)
-        output = resp.output_text.strip()
+        try:
+            output, truncated = llm.complete(user_prompt, chosen_model, max_output_tokens)
+        except RuntimeError as e:
+            print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(code=1) from e
+        except Exception as e:
+            check_hint = (
+                f"Check your {llm.env_key} and network connection, then try again."
+                if llm.env_key
+                else "Check your provider configuration and network connection, then try again."
+            )
+            print(f"[red]API error:[/red] {e}\n{check_hint}")
+            raise typer.Exit(code=1) from e
+
+    if truncated:
+        print(
+            f"[yellow]Warning:[/yellow] output hit the {max_output_tokens:,}-token cap and was truncated. "
+            "Rerun with a higher --max-output-tokens (e.g. 32000) to get the full response."
+        )
 
     # Write output
     fmt = format.lower().strip()
@@ -420,14 +462,20 @@ TRANSCRIPTS:
 @app.command("doctor")
 def doctor():
     """Quick sanity checks."""
-    ok = True
-    if not os.getenv("OPENAI_API_KEY"):
-        ok = False
-        print("[red]Missing:[/red] OPENAI_API_KEY environment variable")
-    else:
-        print("[green]OK:[/green] OPENAI_API_KEY is set")
+    any_key = False
+    for name, cls in PROVIDERS.items():
+        env_key = cls.env_key
+        if env_key is None:
+            print(f"[green]OK:[/green] provider '{name}' needs no API key (local)")
+            any_key = True
+        elif os.getenv(env_key):
+            print(f"[green]OK:[/green] {env_key} is set  (provider: {name})")
+            any_key = True
+        else:
+            print(f"[yellow]--:[/yellow] {env_key} not set  (set this to use --provider {name})")
 
-    if ok:
-        print("[green]All good.[/green]")
-    else:
+    if not any_key:
+        print("[red]Error:[/red] At least one provider must be configured.")
         raise typer.Exit(code=1)
+
+    print("[green]All good.[/green]")
