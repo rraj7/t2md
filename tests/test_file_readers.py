@@ -75,6 +75,34 @@ def test_read_text_routes_to_pdf(tmp_path, monkeypatch):
     assert called[0] == f
 
 
+def test_run_surfaces_pdf_read_failure_as_bad_parameter(tmp_path, monkeypatch):
+    """A .pdf present without pdfplumber must not crash with a traceback."""
+    import builtins
+    import typer
+    from typer.testing import CliRunner
+
+    from t2md.cli import app
+
+    folder = tmp_path / "mod"
+    folder.mkdir()
+    pdf = folder / "lecture.pdf"
+    pdf.write_bytes(b"%PDF-1.4 not real")
+
+    real_import = builtins.__import__
+
+    def no_pdfplumber(name, *args, **kwargs):
+        if name == "pdfplumber":
+            raise ImportError("mocked missing")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_pdfplumber)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    result = CliRunner().invoke(app, ["run", str(folder), "--out", str(tmp_path / "out")])
+    assert result.exit_code != 0
+    assert "Failed to read" in result.output or "Failed to read" in str(result.exception)
+
+
 def test_read_text_routes_to_docx(tmp_path, monkeypatch):
     called = []
 

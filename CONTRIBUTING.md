@@ -35,7 +35,7 @@ t2md doctor
 
 ## Project layout
 
-```
+```text
 src/t2md/
   cli.py              # all CLI commands (run, doctor)
   providers.py        # LLM provider abstraction (OpenAI, Anthropic, Ollama stub)

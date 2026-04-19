@@ -52,11 +52,11 @@ def read_text(p: Path) -> str:
 def _read_pdf(p: Path) -> str:
     try:
         import pdfplumber
-    except ImportError:
+    except ImportError as e:
         raise RuntimeError(
             "pdfplumber is required to read PDF files. "
-            "Install it: pip install pdfplumber"
-        )
+            "Install it with: pip install 't2md[pdf]'"
+        ) from e
     pages = []
     with pdfplumber.open(p) as pdf:
         for page in pdf.pages:
@@ -369,6 +369,7 @@ def run(
     max_output_tokens: int = typer.Option(
         16_000,
         "--max-output-tokens",
+        min=1,
         help="Maximum tokens to generate. Raise if output looks cut off.",
     ),
 ):
@@ -398,7 +399,10 @@ def run(
         prompt_path = prompt.expanduser().resolve()
         if not prompt_path.exists():
             raise typer.BadParameter(f"Prompt file not found: {prompt_path}")
-        prompt_rules = read_text(prompt_path)
+        try:
+            prompt_rules = read_text(prompt_path)
+        except Exception as e:
+            raise typer.BadParameter(f"Failed to read prompt file '{prompt_path}': {e}") from e
     elif preset:
         try:
             prompt_rules = load_preset(preset)
@@ -414,7 +418,11 @@ def run(
 
     combined = []
     for f in files:
-        combined.append(f"\n\n---\n\n## SOURCE FILE: {f.name}\n\n{read_text(f)}\n")
+        try:
+            content = read_text(f)
+        except Exception as e:
+            raise typer.BadParameter(f"Failed to read '{f}': {e}") from e
+        combined.append(f"\n\n---\n\n## SOURCE FILE: {f.name}\n\n{content}\n")
     transcripts = "".join(combined).strip()
 
     user_prompt = f"""

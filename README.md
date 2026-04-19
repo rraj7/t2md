@@ -15,7 +15,7 @@
 
 **Input** — raw transcript (`examples/mit6_7960_lec01_intro_deep_learning/mit6_7960f24_lec01.txt`):
 
-```
+```text
 MITOCW | mit6_7960f24_lec01.mp4
 [SQUEAKING]
 [RUSTLING]
@@ -29,7 +29,7 @@ Yeah, almost everybody, probably everybody...
 
 **Output** — generated markdown ([full file](examples/sample_outputs/lec01_intro_deep_learning.md)):
 
-```
+```markdown
 # Executive Summary
 - Thesis: Deep learning has rapidly evolved to become a transformative technology...
 - Key Concepts: neural networks, differential programming, activation functions...
@@ -145,7 +145,7 @@ Each run writes one file per folder containing:
 1. **Executive Summary** — thesis, 5–10 key concepts, examples, what to remember
 2. **Structured Reading** — textbook-style prose with TOC, headings, and a synthesis
 
-```
+```text
 outputs/
   module_03_All.md
   module_03_All.docx
@@ -165,10 +165,12 @@ outputs/
 
 ## Roadmap
 
-- PDF and DOCX **input** support (currently only `.txt`/`.md`/`.srt`/`.vtt`)
+Supported input formats today: `.txt`, `.md`, `.srt`, `.vtt`, `.pdf`, `.docx`.
+
 - Local Ollama provider (scaffolding already in place)
-- Prompt presets per subject (lectures, interviews, meetings)
-- PyPI release
+- Additional prompt presets (meeting notes, research papers, book chapters)
+- YouTube VTT / auto-caption ingestion
+- CSV / PPTX input
 
 ---
 
