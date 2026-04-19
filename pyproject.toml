@@ -37,10 +37,14 @@ Changelog = "https://github.com/rraj7/t2md/blob/main/CHANGELOG.md"
 "Bug Tracker" = "https://github.com/rraj7/t2md/issues"
 
 [project.optional-dependencies]
+pdf = [
+  "pdfplumber>=0.10.0",
+]
 dev = [
   "pytest>=8.0.0",
   "build>=1.0.0",
   "twine>=5.0.0",
+  "pdfplumber>=0.10.0",
 ]
 
 [project.scripts]
@@ -54,4 +58,4 @@ build-backend = "setuptools.build_meta"
 package-dir = {"" = "src"}
 
 [tool.setuptools.package-data]
-t2md = ["default_prompt.md"]
+t2md = ["default_prompt.md", "prompts/*.md"]

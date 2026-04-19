@@ -1,5 +1,10 @@
 # t2md
 
+[![CI](https://github.com/rraj7/t2md/actions/workflows/ci.yml/badge.svg)](https://github.com/rraj7/t2md/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/t2md)](https://pypi.org/project/t2md/)
+[![Python](https://img.shields.io/pypi/pyversions/t2md)](https://pypi.org/project/t2md/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 **Turn raw transcripts into study-ready reading.**
 
 `t2md` is a command-line tool that takes a folder of transcripts (lecture captions, interview notes, Zoom dumps) and runs them through an LLM to produce a clean executive summary plus textbook-style prose. It auto-picks a cheap model for short inputs and a stronger one for long inputs, and it works with either OpenAI or Anthropic.
@@ -45,8 +50,25 @@ Two pre-generated samples are committed at [`examples/sample_outputs/`](examples
 ## Install
 
 ```bash
-brew install pipx
-pipx ensurepath
+pipx install t2md
+```
+
+Or with plain pip:
+
+```bash
+pip install t2md
+```
+
+For PDF input support:
+
+```bash
+pipx install "t2md[pdf]"
+```
+
+If you want to install from source:
+
+```bash
+brew install pipx && pipx ensurepath
 pipx install git+https://github.com/rraj7/t2md.git
 ```
 
@@ -87,6 +109,10 @@ t2md run /path/to/transcripts --provider anthropic
 
 # Override the auto-selected model
 t2md run /path/to/transcripts --model gpt-4o
+
+# Use a built-in prompt preset (lecture or interview)
+t2md run /path/to/transcripts --preset lecture
+t2md run /path/to/transcripts --preset interview
 
 # Custom prompt file — full control over the output style
 t2md run /path/to/transcripts --prompt /path/to/prompt_rules.md
