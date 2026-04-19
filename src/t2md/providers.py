@@ -28,7 +28,7 @@ def count_tokens(prompt: str) -> int:
 class Provider(ABC):
     name: ClassVar[str]
     env_key: ClassVar[str | None]
-    tiers: ClassVar[list[tuple[int, str]]]
+    tiers: ClassVar[tuple[tuple[int, str], ...]]
     large_model: ClassVar[str]
 
     def select_model(self, tokens: int) -> str:
@@ -56,7 +56,7 @@ class Provider(ABC):
 class OpenAIProvider(Provider):
     name = "openai"
     env_key = "OPENAI_API_KEY"
-    tiers = [(4_000, "gpt-4o-mini"), (32_000, "gpt-4o")]
+    tiers = ((4_000, "gpt-4o-mini"), (32_000, "gpt-4o"))
     large_model = "gpt-4o"
 
     def complete(self, prompt: str, model: str, max_output_tokens: int) -> tuple[str, bool]:
@@ -76,7 +76,7 @@ class OpenAIProvider(Provider):
 class AnthropicProvider(Provider):
     name = "anthropic"
     env_key = "ANTHROPIC_API_KEY"
-    tiers = [(4_000, "claude-haiku-4-5"), (32_000, "claude-sonnet-4-6")]
+    tiers = ((4_000, "claude-haiku-4-5"), (32_000, "claude-sonnet-4-6"))
     large_model = "claude-sonnet-4-6"
 
     def complete(self, prompt: str, model: str, max_output_tokens: int) -> tuple[str, bool]:
@@ -97,7 +97,7 @@ class OllamaProvider(Provider):
 
     name = "ollama"
     env_key = None
-    tiers = [(4_000, "llama3.2:3b"), (32_000, "llama3.1:8b")]
+    tiers = ((4_000, "llama3.2:3b"), (32_000, "llama3.1:8b"))
     large_model = "llama3.1:70b"
 
     def complete(self, prompt: str, model: str, max_output_tokens: int) -> tuple[str, bool]:

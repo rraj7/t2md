@@ -340,7 +340,7 @@ def run(
     try:
         llm = get_provider(provider)
     except ValueError as e:
-        raise typer.BadParameter(str(e))
+        raise typer.BadParameter(str(e)) from e
 
     folder = folder.expanduser().resolve()
     out = out.expanduser().resolve()
@@ -422,13 +422,15 @@ TRANSCRIPTS:
             output, truncated = llm.complete(user_prompt, chosen_model, max_output_tokens)
         except RuntimeError as e:
             print(f"[red]Error:[/red] {e}")
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=1) from e
         except Exception as e:
-            print(
-                f"[red]API error:[/red] {e}\n"
+            check_hint = (
                 f"Check your {llm.env_key} and network connection, then try again."
+                if llm.env_key
+                else "Check your provider configuration and network connection, then try again."
             )
-            raise typer.Exit(code=1)
+            print(f"[red]API error:[/red] {e}\n{check_hint}")
+            raise typer.Exit(code=1) from e
 
     if truncated:
         print(
