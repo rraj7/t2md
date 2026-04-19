@@ -1,6 +1,6 @@
 [project]
 name = "t2md"
-version = "0.2.1"
+version = "0.2.2"
 description = "CLI that turns raw transcripts into study-ready Markdown, DOCX, or LaTeX using OpenAI or Claude."
 readme = "README.md"
 requires-python = ">=3.10"

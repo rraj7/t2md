@@ -1,13 +1,16 @@
 # t2md
 
 [![CI](https://github.com/rraj7/t2md/actions/workflows/ci.yml/badge.svg)](https://github.com/rraj7/t2md/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/t2md)](https://pypi.org/project/t2md/)
-[![Python](https://img.shields.io/pypi/pyversions/t2md)](https://pypi.org/project/t2md/)
+[![PyPI](https://img.shields.io/pypi/v/t2md?color=blue&label=PyPI)](https://pypi.org/project/t2md/)
+[![Python](https://img.shields.io/pypi/pyversions/t2md?color=blue)](https://pypi.org/project/t2md/)
+[![Downloads](https://static.pepy.tech/badge/t2md)](https://pepy.tech/project/t2md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **Turn raw transcripts into study-ready reading.**
 
 `t2md` is a command-line tool that takes a folder of transcripts (lecture captions, interview notes, Zoom dumps) and runs them through an LLM to produce a clean executive summary plus textbook-style prose. It auto-picks a cheap model for short inputs and a stronger one for long inputs, and it works with either OpenAI or Anthropic.
+
+Why not just paste into ChatGPT? `t2md` handles batches of files, concatenates multi-part transcripts, picks the right model for the input size so you don't overpay, and writes consistent Markdown / DOCX / LaTeX you can commit, diff, and re-run on updated source.
 
 ---
 
@@ -134,16 +137,18 @@ Without `--model`, `t2md` picks the cheapest model that can handle the input:
 | 4,000 – 32,000 | `gpt-4o` | `claude-sonnet-4-6` |
 | > 32,000 | `gpt-4o` + warning | `claude-sonnet-4-6` + warning |
 
-Short lectures cost fractions of a cent; longer content automatically gets the stronger model.
+A typical 60-minute lecture transcript (~15k tokens) runs through `gpt-4o` for roughly **$0.05–$0.10**. A short 10-minute clip on `gpt-4o-mini` is under a cent. Claude costs are in the same ballpark at the matching tier.
 
 ---
 
 ## Output
 
-Each run writes one file per folder containing:
+All transcripts in a folder are concatenated and summarized into a single output file named `<folder>_All.<ext>`. Each output contains:
 
 1. **Executive Summary** — thesis, 5–10 key concepts, examples, what to remember
 2. **Structured Reading** — textbook-style prose with TOC, headings, and a synthesis
+
+For example, running on a folder named `module_03/` produces:
 
 ```text
 outputs/
