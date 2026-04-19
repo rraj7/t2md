@@ -3,7 +3,6 @@
 [![CI](https://github.com/rraj7/t2md/actions/workflows/ci.yml/badge.svg)](https://github.com/rraj7/t2md/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/t2md?color=blue&label=PyPI)](https://pypi.org/project/t2md/)
 [![Python](https://img.shields.io/pypi/pyversions/t2md?color=blue)](https://pypi.org/project/t2md/)
-[![Downloads](https://static.pepy.tech/badge/t2md)](https://pepy.tech/project/t2md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **Turn raw transcripts into study-ready reading.**
