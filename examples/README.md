@@ -32,3 +32,10 @@ t2md run examples/mit6_7960_lec01_intro_deep_learning --provider anthropic
 ```
 
 These transcripts are intentionally raw and conversational — exactly the kind of content t2md is designed to clean up.
+
+## Sample outputs
+
+Pre-generated outputs are committed so you can see what t2md produces without running it:
+
+- [`sample_outputs/lec01_intro_deep_learning.md`](sample_outputs/lec01_intro_deep_learning.md) — generated with `gpt-4o` (auto-selected, 13,823 input tokens)
+- [`sample_outputs/lec02_training_neural_networks.md`](sample_outputs/lec02_training_neural_networks.md) — generated with `gpt-4o` (auto-selected, 16,814 input tokens)

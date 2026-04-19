@@ -17,7 +17,7 @@ console = Console()
 # Filename ordering helper: prefers patterns like 3.7.1, 3.7.2, etc.
 NUM = re.compile(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?")
 
-SUPPORTED_EXTS = {".txt", ".md", ".srt", ".vtt"}
+SUPPORTED_EXTS = {".txt", ".md", ".srt", ".vtt", ".pdf", ".docx"}
 
 _LARGE_WARNING = 32_000
 
@@ -41,12 +41,53 @@ def list_transcripts(folder: Path) -> list[Path]:
 
 
 def read_text(p: Path) -> str:
+    suffix = p.suffix.lower()
+    if suffix == ".pdf":
+        return _read_pdf(p)
+    if suffix == ".docx":
+        return _read_docx(p)
     return p.read_text(encoding="utf-8", errors="ignore").strip()
 
 
+def _read_pdf(p: Path) -> str:
+    try:
+        import pdfplumber
+    except ImportError as e:
+        raise RuntimeError(
+            "pdfplumber is required to read PDF files. "
+            "Install it with: pip install 't2md[pdf]'"
+        ) from e
+    pages = []
+    with pdfplumber.open(p) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text()
+            if text:
+                pages.append(text)
+    return "\n\n".join(pages).strip()
+
+
+def _read_docx(p: Path) -> str:
+    from docx import Document  # python-docx, already a dependency
+    doc = Document(str(p))
+    return "\n\n".join(para.text for para in doc.paragraphs if para.text.strip()).strip()
+
+
+PRESETS: dict[str, str] = {
+    "lecture": "prompts/lecture.md",
+    "interview": "prompts/interview.md",
+}
+
+
 def load_default_prompt() -> str:
-    # Bundled file inside the installed package
     prompt_path = pkg_files("t2md").joinpath("default_prompt.md")
+    return prompt_path.read_text(encoding="utf-8").strip()
+
+
+def load_preset(name: str) -> str:
+    if name not in PRESETS:
+        available = ", ".join(PRESETS)
+        raise ValueError(f"Unknown preset '{name}'. Available: {available}")
+    prompt_path = pkg_files("t2md").joinpath(PRESETS[name])
     return prompt_path.read_text(encoding="utf-8").strip()
 
 
@@ -320,13 +361,15 @@ def run(
     folder: Path = typer.Argument(..., help="Folder containing transcript files"),
     module: str | None = typer.Option(None, "--module", help="Module name (default: folder name)"),
     out: Path = typer.Option(Path("./outputs"), "--out", help="Output directory"),
-    prompt: Path | None = typer.Option(None, "--prompt", help="Optional prompt markdown file override"),
+    prompt: Path | None = typer.Option(None, "--prompt", help="Custom prompt file (overrides --preset)"),
+    preset: str | None = typer.Option(None, "--preset", help="Built-in prompt preset: lecture, interview"),
     model: str | None = typer.Option(None, "--model", help="Model override (default: auto-selected by input size)"),
     provider: str = typer.Option("openai", "--provider", help="LLM provider: openai or anthropic"),
     format: str = typer.Option("md", "--format", help="Output format: md, docx, or tex"),
     max_output_tokens: int = typer.Option(
         16_000,
         "--max-output-tokens",
+        min=1,
         help="Maximum tokens to generate. Raise if output looks cut off.",
     ),
 ):
@@ -351,23 +394,35 @@ def run(
 
     module_name = module or derive_module_name(folder)
 
-    # Prompt rules
+    # Prompt rules — --prompt beats --preset beats default
     if prompt:
         prompt_path = prompt.expanduser().resolve()
         if not prompt_path.exists():
             raise typer.BadParameter(f"Prompt file not found: {prompt_path}")
-        prompt_rules = read_text(prompt_path)
+        try:
+            prompt_rules = read_text(prompt_path)
+        except Exception as e:
+            raise typer.BadParameter(f"Failed to read prompt file '{prompt_path}': {e}") from e
+    elif preset:
+        try:
+            prompt_rules = load_preset(preset)
+        except ValueError as e:
+            raise typer.BadParameter(str(e)) from e
     else:
         prompt_rules = load_default_prompt()
 
     # Gather transcripts
     files = list_transcripts(folder)
     if not files:
-        raise typer.BadParameter("No transcript files found (.txt/.md/.srt/.vtt).")
+        raise typer.BadParameter("No transcript files found (.txt/.md/.srt/.vtt/.pdf/.docx).")
 
     combined = []
     for f in files:
-        combined.append(f"\n\n---\n\n## SOURCE FILE: {f.name}\n\n{read_text(f)}\n")
+        try:
+            content = read_text(f)
+        except Exception as e:
+            raise typer.BadParameter(f"Failed to read '{f}': {e}") from e
+        combined.append(f"\n\n---\n\n## SOURCE FILE: {f.name}\n\n{content}\n")
     transcripts = "".join(combined).strip()
 
     user_prompt = f"""

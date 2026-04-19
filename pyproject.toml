@@ -1,9 +1,26 @@
 [project]
 name = "t2md"
-version = "0.2.0"
-description = "Turn transcripts into an executive summary + textbook-style Markdown"
+version = "0.2.1"
+description = "CLI that turns raw transcripts into study-ready Markdown, DOCX, or LaTeX using OpenAI or Claude."
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Rishi Raj", email = "rishiraj@berkeley.edu" }]
+keywords = ["cli", "llm", "transcripts", "markdown", "summarization", "openai", "anthropic", "study-tools"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Education",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Text Processing",
+  "Topic :: Utilities",
+]
 dependencies = [
   "openai>=1.0.0",
   "anthropic>=0.25.0",
@@ -13,9 +30,21 @@ dependencies = [
   "tiktoken>=0.7.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/rraj7/t2md"
+Source = "https://github.com/rraj7/t2md"
+Changelog = "https://github.com/rraj7/t2md/blob/main/CHANGELOG.md"
+"Bug Tracker" = "https://github.com/rraj7/t2md/issues"
+
 [project.optional-dependencies]
+pdf = [
+  "pdfplumber>=0.10.0",
+]
 dev = [
   "pytest>=8.0.0",
+  "build>=1.0.0",
+  "twine>=5.0.0",
+  "pdfplumber>=0.10.0",
 ]
 
 [project.scripts]
@@ -29,4 +58,4 @@ build-backend = "setuptools.build_meta"
 package-dir = {"" = "src"}
 
 [tool.setuptools.package-data]
-t2md = ["default_prompt.md"]
+t2md = ["default_prompt.md", "prompts/*.md"]
